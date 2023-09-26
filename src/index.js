@@ -240,8 +240,8 @@ class App {
       
       wireframe: false,
       color: 0xffffff,
-      roughness: 0.3, // Add roughness for more realistic interaction with light
-      metalness: 0.3,  // Add metalness for more realistic interaction with light
+      roughness: 0.5, // Add roughness for more realistic interaction with light
+      metalness: 0.2,  // Add metalness for more realistic interaction with light
     });
 
     // Calculate the dimensions of the plane to match the camera's frustum
