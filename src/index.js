@@ -1,4 +1,3 @@
-
 import {
   Scene,
   WebGLRenderer,
@@ -10,15 +9,39 @@ import {
   Clock,
   Vector2,
   PlaneGeometry,
-  MeshBasicMaterial
-} from 'three'
+  MeshBasicMaterial,
+  Vector3,
+  TextureLoader,  // <- Add this
+  Object3D,
+  MeshPhysicalMaterial,
+  HemisphereLight,
+  PointLightHelper,
+  AmbientLight
+} from 'three';
 
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls'
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+import poster from './textures/poster2.webp'
+import normal from './textures/roughness.png'
 
 import { SampleShaderMaterial } from './materials/SampleShaderMaterial'
 import { gltfLoader } from './loaders'
+import { MeshNormalMaterial } from 'three';
+import { DirectionalLight } from 'three';
+
+// Add this to the top imports
+import { Raycaster } from 'three';
+import { clamp } from 'three/src/math/MathUtils';
 
 class App {
+
+  // Add this inside your App class
+  #mouse = new Vector2();
+  #raycaster = new Raycaster();
+
+  #lastMousePosition = new Vector2();
+  #lastMouseTime = null;
+
   #resizeCallback = () => this.#onResize()
 
   constructor(container, opts = { physics: false, debug: false }) {
@@ -27,6 +50,8 @@ class App {
 
     this.hasPhysics = opts.physics
     this.hasDebug = opts.debug
+
+    window.addEventListener('mousemove', this.#onMouseMove, false);
   }
 
   async init() {
@@ -34,25 +59,13 @@ class App {
     this.#createCamera()
     this.#createRenderer()
 
-    if (this.hasPhysics) {
-      const { Simulation } = await import('./physics/Simulation')
-      this.simulation = new Simulation(this)
-
-      const { PhysicsBox } = await import('./physics/Box')
-      const { PhysicsFloor } = await import('./physics/Floor')
-
-      Object.assign(this, { PhysicsBox, PhysicsFloor })
-    }
-
-    this.#createBox()
-    this.#createShadedBox()
     this.#createLight()
-    this.#createFloor()
     this.#createClock()
     this.#addListeners()
     this.#createControls()
+    await this.createPlane();
 
-    await this.#loadModel()
+
 
     if (this.hasDebug) {
       const { Debug } = await import('./Debug.js')
@@ -78,15 +91,92 @@ class App {
   destroy() {
     this.renderer.dispose()
     this.#removeListeners()
+    window.removeEventListener('mousemove', this.#onMouseMove, false);
   }
 
+  getMouseSpeed() {
+    if (this.#lastMouseTime === null) {
+      this.#lastMousePosition.copy(this.#mouse);
+      this.#lastMouseTime = performance.now();
+
+      return { speedVector: new Vector2(0, 0), overallSpeed: 0 };
+    }
+
+    const currentTime = performance.now();
+    const deltaTime = (currentTime - this.#lastMouseTime) / 1000;  // Time in seconds
+
+    if (deltaTime <= 0) return { speedVector: new Vector2(0, 0), overallSpeed: 0 };
+
+    const dx = this.#mouse.x - this.#lastMousePosition.x;
+    const dy = this.#mouse.y - this.#lastMousePosition.y;
+
+    const speedX = dx / deltaTime;
+    const speedY = dy / deltaTime;
+
+    const overallSpeed = Math.sqrt(speedX * speedX + speedY * speedY);
+
+    this.#lastMousePosition.copy(this.#mouse);
+    this.#lastMouseTime = currentTime;
+
+    return { speedVector: new Vector2(speedX, speedY), overallSpeed };
+  }
+
+
+  #onMouseMove = (event) => {
+    this.#mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+    this.#mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+
+
+  }
+
+
+
+
+
+
+  #originalPositionsZ = 0; // You already have this
+
   #update() {
-    const elapsed = this.clock.getElapsedTime()
 
-    this.shadedBox.rotation.y = elapsed
-    this.shadedBox.rotation.z = elapsed*0.6
 
-    this.simulation?.update()
+    const elapsed = this.clock.getElapsedTime();
+    //this.controls.update();
+    // Update the raycaster
+    this.#raycaster.setFromCamera(this.#mouse, this.camera);
+
+    // Check for intersection
+    const intersects = this.#raycaster.intersectObject(this.fullscreenPlane);
+
+    const positionAttribute = this.fullscreenPlane.geometry.getAttribute('position');
+
+    const { speedVector, overallSpeed } = this.getMouseSpeed();
+
+    for (let i = 0; i < positionAttribute.count; i++) {
+      const vertex = new Vector3();
+      vertex.fromBufferAttribute(positionAttribute, i);
+
+      let targetZ = this.#originalPositionsZ;
+
+      if (intersects.length > 0) {
+        const { point } = intersects[0];
+        const distance = point.distanceTo(vertex);
+
+        const distMult = 1.5
+        const amp = clamp(overallSpeed, 0, 6)
+        if (distance < Math.PI * distMult) { // Change this to control the radius of the effect
+          targetZ = (Math.cos(distance / distMult) + 1) * amp;
+        }
+      }
+
+      const newZ = vertex.z + (targetZ - vertex.z) * 0.1; // 0.1 is the easing factor
+      positionAttribute.setZ(i, newZ);
+    }
+    // Recalculate the normals
+    this.fullscreenPlane.geometry.computeVertexNormals();
+    positionAttribute.needsUpdate = true;
+    // Required to update the geometry
+    this.fullscreenPlane.geometry.verticesNeedUpdate = true;
   }
 
   #render() {
@@ -99,7 +189,8 @@ class App {
 
   #createCamera() {
     this.camera = new PerspectiveCamera(75, this.screen.x / this.screen.y, 0.1, 100)
-    this.camera.position.set(-0.7, 0.8, 3)
+    this.camera.position.set(0, 0, 10);
+
   }
 
   #createRenderer() {
@@ -107,7 +198,7 @@ class App {
       alpha: true,
       antialias: window.devicePixelRatio === 1
     })
-
+    this.renderer.shadowMap.enabled = true;
     this.container.appendChild(this.renderer.domElement)
 
     this.renderer.setSize(this.screen.x, this.screen.y)
@@ -117,84 +208,71 @@ class App {
   }
 
   #createLight() {
-    this.pointLight = new PointLight(0xff0055, 500, 100, 2)
-    this.pointLight.position.set(0, 10, 13)
-    this.scene.add(this.pointLight)
+    // Create a directional light
+    this.light = new DirectionalLight(0xffffff, 5);
+    this.light.position.set(1, 100, 1);
+
+
+    // Create an ambient light
+    this.ambientLight = new AmbientLight(0xffffff, 2);
+
+    // Create a point light
+    const pointLight = new PointLight(0xffffff, 2, 300, 0);
+    pointLight.position.set(4, 4, 6);
+    pointLight.castShadow = true
+
+    const pHelper = new PointLightHelper(pointLight);
+    this.scene.add(pHelper);
+
+
+    // Add lights to the scene
+
+    this.scene.add(this.ambientLight);
+    this.scene.add(pointLight); // Add the point light
   }
 
-  /**
-   * Create a box with a PBR material
-   */
-  #createBox() {
-    const geometry = new BoxGeometry(1, 1, 1, 1, 1, 1)
+  async createPlane() {
+    // Create a texture loader instance
+    const textureLoader = new TextureLoader();
+    const planeTexture = textureLoader.load(poster);
+    const planeNormals = textureLoader.load(normal)
 
-    const material = new MeshStandardMaterial({
+    // Create the material for the plane
+    const material = new MeshPhysicalMaterial({
+      map: planeTexture,
+      
+      wireframe: false,
       color: 0xffffff,
-      metalness: 0.7,
-      roughness: 0.35
-    })
+      roughness: 0.3, // Add roughness for more realistic interaction with light
+      metalness: 0.3,  // Add metalness for more realistic interaction with light
+    });
 
-    this.box = new Mesh(geometry, material)
-    this.box.position.x = -1.5
-    this.box.rotation.set(
-      Math.random() * Math.PI,
-      Math.random() * Math.PI,
-      Math.random() * Math.PI
-    )
+    // Calculate the dimensions of the plane to match the camera's frustum
+    const frustumHeight = 2.0 * Math.tan((0.5 * this.camera.fov * Math.PI) / 180.0) * this.camera.position.z;
+    const frustumWidth = frustumHeight * this.camera.aspect;
 
-    this.scene.add(this.box)
+    // Create the plane geometry
+    const geometry = new PlaneGeometry(10, 10 * 1.4, 180, 180 * 1.4);
+    //const geometry = new PlaneGeometry(frustumWidth, frustumHeight, 100 * this.camera.aspect, 100);
 
-    if (!this.hasPhysics) return
+    // Create the mesh
+    this.fullscreenPlane = new Mesh(geometry, material);
 
-    const body = new this.PhysicsBox(this.box, this.scene)
-    this.simulation.addItem(body)
+    // Position the plane to fill the screen
+    this.fullscreenPlane.position.z = 0; // At the camera's position
+
+    // Allow the plane to both cast and receive shadows
+    this.fullscreenPlane.castShadow = true;
+    this.fullscreenPlane.receiveShadow = true;
+
+    // Add it to the scene
+    this.scene.add(this.fullscreenPlane);
   }
 
-  /**
-   * Create a box with a custom ShaderMaterial
-   */
-  #createShadedBox() {
-    const geometry = new BoxGeometry(1, 1, 1, 1, 1, 1)
 
-    this.shadedBox = new Mesh(geometry, SampleShaderMaterial)
-    this.shadedBox.position.x = 1.5
-
-    this.scene.add(this.shadedBox)
-  }
-
-  #createFloor() {
-    if (!this.hasPhysics) return
-
-    const geometry = new PlaneGeometry(20, 20, 1, 1)
-    const material = new MeshBasicMaterial({ color: 0x424242 })
-
-    this.floor = new Mesh(geometry, material)
-    this.floor.rotateX(-Math.PI*0.5)
-    this.floor.position.set(0, -2, 0)
-
-    this.scene.add(this.floor)
-
-    const body = new this.PhysicsFloor(this.floor, this.scene)
-    this.simulation.addItem(body)
-  }
-
-  /**
-   * Load a 3D model and append it to the scene
-   */
-  async #loadModel() {
-    const gltf = await gltfLoader.load('/suzanne.glb')
-
-    const mesh = gltf.scene.children[0]
-    mesh.position.z = 1.5
-
-    mesh.material = SampleShaderMaterial.clone()
-    mesh.material.wireframe = true
-
-    this.scene.add(mesh)
-  }
 
   #createControls() {
-    this.controls = new OrbitControls(this.camera, this.renderer.domElement)
+    this.controls = new OrbitControls(this.camera, this.renderer.domElement);
   }
 
   #createClock() {
@@ -214,6 +292,7 @@ class App {
 
     this.camera.aspect = this.screen.x / this.screen.y
     this.camera.updateProjectionMatrix()
+
 
     this.renderer.setSize(this.screen.x, this.screen.y)
   }
