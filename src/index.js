@@ -221,9 +221,6 @@ class App {
     pointLight.position.set(4, 4, 6);
     pointLight.castShadow = true
 
-    const pHelper = new PointLightHelper(pointLight);
-    this.scene.add(pHelper);
-
 
     // Add lights to the scene
 
