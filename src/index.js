@@ -18,7 +18,7 @@ import {
   PointLightHelper,
   AmbientLight
 } from 'three';
-
+import { BufferAttribute } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 import poster from './textures/poster2.webp'
@@ -34,6 +34,11 @@ import { Raycaster } from 'three';
 import { clamp } from 'three/src/math/MathUtils';
 
 class App {
+
+
+  #rippleBuffer1;
+  #rippleBuffer2;
+  
 
   // Add this inside your App class
   #mouse = new Vector2();
@@ -51,10 +56,15 @@ class App {
     this.hasPhysics = opts.physics
     this.hasDebug = opts.debug
 
+    this.#rippleBuffer1 = [];
+    this.#rippleBuffer2 = [];
+
     window.addEventListener('mousemove', this.#onMouseMove, false);
   }
 
   async init() {
+
+
     this.#createScene()
     this.#createCamera()
     this.#createRenderer()
@@ -64,6 +74,7 @@ class App {
     this.#addListeners()
     this.#createControls()
     await this.createPlane();
+    this.initRippleBuffers(this.fullscreenPlane.geometry);
 
 
 
@@ -86,6 +97,14 @@ class App {
     })
 
     console.log(this)
+  }
+
+  initRippleBuffers(geometry) {
+    const vertices = geometry.attributes.position.array;
+    const len = vertices.length / 3;  // each vertex has x, y, z
+
+    this.#rippleBuffer1 = new Float32Array(len).fill(0);
+    this.#rippleBuffer2 = new Float32Array(len).fill(0);
   }
 
   destroy() {
@@ -126,53 +145,88 @@ class App {
     this.#mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
     this.#mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
 
+    // Update the raycaster based on the mouse and camera
+    this.#raycaster.setFromCamera(this.#mouse, this.camera);
 
-
+    const intersection = this.#getIntersection();
+    if (intersection) {
+      this.triggerRipple(intersection, 0.2); // Adjust intensity as needed
+    }
   }
 
-  #originalPositionsZ = 0; // You already have this
+  #getIntersection() {
+    const intersects = this.#raycaster.intersectObject(this.fullscreenPlane);
+    if (intersects.length > 0) {
+      return intersects[0].point;
+    }
+    return null;
+  }
+
+  triggerRipple(point, intensity = 1) {
+    const { x, y, z } = point;
+    const geometry = this.fullscreenPlane.geometry;
+    const vertices = geometry.attributes.position.array;
+
+    for (let i = 0; i < vertices.length; i += 3) {
+      const dx = vertices[i] - x;
+      const dy = vertices[i + 1] - y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      if (distance < 1) {
+        const idx = i / 3;
+        this.#rippleBuffer1[idx] += intensity * (1 - distance);
+      }
+    }
+  }
+
+
+
+
+  updateRipple() {
+    const damping = 0.99;
+    const spread = 0.99;
+    const buffer1 = this.#rippleBuffer1;
+    const buffer2 = this.#rippleBuffer2;
+    const geometry = this.fullscreenPlane.geometry;
+    const vertices = geometry.attributes.position.array;
+
+    for (let i = 0; i < buffer1.length; ++i) {
+      let sum = 0;
+      sum += buffer1[i > 1 ? i - 1 : i];
+      sum += buffer1[i < buffer1.length - 1 ? i + 1 : i];
+      sum *= spread;
+      buffer2[i] = (sum - buffer2[i]) * damping;
+    }
+
+    for (let i = 0; i < buffer2.length; ++i) {
+      const zIdx = i * 3 + 2; // Index for Z-coordinate in the vertices array
+      vertices[zIdx] = buffer2[i];
+    }
+
+    // Swap buffers
+    [this.#rippleBuffer1, this.#rippleBuffer2] = [this.#rippleBuffer2, this.#rippleBuffer1];
+
+    geometry.attributes.position.needsUpdate = true;
+  }
+
+
 
   #update() {
-
-
     const elapsed = this.clock.getElapsedTime();
-    //this.controls.update();
+
     // Update the raycaster
     this.#raycaster.setFromCamera(this.#mouse, this.camera);
 
-    // Check for intersection
-    const intersects = this.#raycaster.intersectObject(this.fullscreenPlane);
-
+    this.updateRipple();
     const positionAttribute = this.fullscreenPlane.geometry.getAttribute('position');
-
-    const { speedVector, overallSpeed } = this.getMouseSpeed();
-
-    for (let i = 0; i < positionAttribute.count; i++) {
-      const vertex = new Vector3();
-      vertex.fromBufferAttribute(positionAttribute, i);
-
-      let targetZ = this.#originalPositionsZ;
-
-      if (intersects.length > 0) {
-        const { point } = intersects[0];
-        const distance = point.distanceTo(vertex);
-
-        const distMult = 1.5
-        const amp = clamp(overallSpeed, 0, 6)
-        if (distance < Math.PI * distMult) { // Change this to control the radius of the effect
-          targetZ = (Math.cos(distance / distMult) + 1) * amp;
-        }
-      }
-
-      const newZ = vertex.z + (targetZ - vertex.z) * 0.1; // 0.1 is the easing factor
-      positionAttribute.setZ(i, newZ);
-    }
     // Recalculate the normals
     this.fullscreenPlane.geometry.computeVertexNormals();
     positionAttribute.needsUpdate = true;
+
     // Required to update the geometry
     this.fullscreenPlane.geometry.verticesNeedUpdate = true;
   }
+
 
   #render() {
     this.renderer.render(this.scene, this.camera)
