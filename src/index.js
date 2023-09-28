@@ -130,11 +130,6 @@ class App {
 
   }
 
-
-
-
-
-
   #originalPositionsZ = 0; // You already have this
 
   #update() {
@@ -218,7 +213,7 @@ class App {
 
     // Create a point light
     const pointLight = new PointLight(0xffffff, 2, 300, 0);
-    pointLight.position.set(4, 4, 6);
+    pointLight.position.set(4, 4, 10);
     pointLight.castShadow = true
 
 
@@ -232,15 +227,14 @@ class App {
     // Create a texture loader instance
     const textureLoader = new TextureLoader();
     const planeTexture = textureLoader.load(poster);
-    const planeNormals = textureLoader.load(normal)
+    const planeNormals = textureLoader.load(poster)
 
     // Create the material for the plane
     const material = new MeshPhysicalMaterial({
       map: planeTexture,
-      
       wireframe: false,
       color: 0xffffff,
-      roughness: 0.5, // Add roughness for more realistic interaction with light
+      roughness: 0.6, // Add roughness for more realistic interaction with light
       metalness: 0.2,  // Add metalness for more realistic interaction with light
     });
 
