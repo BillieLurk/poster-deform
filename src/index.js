@@ -38,7 +38,7 @@ class App {
 
   #rippleBuffer1;
   #rippleBuffer2;
-  
+
 
   // Add this inside your App class
   #mouse = new Vector2();
@@ -162,19 +162,19 @@ class App {
     return null;
   }
 
-  triggerRipple(point, intensity = 1) {
+  triggerRipple(point, intensity = 10) {
     const { x, y, z } = point;
     const geometry = this.fullscreenPlane.geometry;
     const vertices = geometry.attributes.position.array;
+    const len = vertices.length / 3; // each vertex has x, y, z
 
-    for (let i = 0; i < vertices.length; i += 3) {
-      const dx = vertices[i] - x;
-      const dy = vertices[i + 1] - y;
+    for (let i = 0; i < len; ++i) {
+      const dx = vertices[i * 3] - x;
+      const dy = vertices[i * 3 + 1] - y;
       const distance = Math.sqrt(dx * dx + dy * dy);
 
       if (distance < 1) {
-        const idx = i / 3;
-        this.#rippleBuffer1[idx] += intensity * (1 - distance);
+        this.#rippleBuffer1[i] += intensity * (1 - distance);
       }
     }
   }
@@ -182,23 +182,32 @@ class App {
 
 
 
+
   updateRipple() {
-    const damping = 0.99;
-    const spread = 0.99;
+    const damping = 0.98;
+    const spread = 0.5;
     const buffer1 = this.#rippleBuffer1;
     const buffer2 = this.#rippleBuffer2;
     const geometry = this.fullscreenPlane.geometry;
     const vertices = geometry.attributes.position.array;
+    const len = vertices.length / 3;  // each vertex has x, y, z
 
-    for (let i = 0; i < buffer1.length; ++i) {
+    for (let i = 0; i < len; ++i) {
       let sum = 0;
       sum += buffer1[i > 1 ? i - 1 : i];
-      sum += buffer1[i < buffer1.length - 1 ? i + 1 : i];
+      sum += buffer1[i < len - 1 ? i + 1 : i];
+
+      // Check for vertical neighbors
+      // Assuming vertices are a grid (width * height), for example, 180 * 252
+      const width = 181;
+      sum += buffer1[i >= width ? i - width : i];
+      sum += buffer1[i < len - width ? i + width : i];
+
       sum *= spread;
       buffer2[i] = (sum - buffer2[i]) * damping;
     }
 
-    for (let i = 0; i < buffer2.length; ++i) {
+    for (let i = 0; i < len; ++i) {
       const zIdx = i * 3 + 2; // Index for Z-coordinate in the vertices array
       vertices[zIdx] = buffer2[i];
     }
@@ -208,6 +217,7 @@ class App {
 
     geometry.attributes.position.needsUpdate = true;
   }
+
 
 
 
