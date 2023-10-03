@@ -162,7 +162,7 @@ class App {
     return null;
   }
 
-  triggerRipple(point, intensity = 10) {
+  triggerRipple(point, intensity = 1000) {
     const { x, y, z } = point;
     const geometry = this.fullscreenPlane.geometry;
     const vertices = geometry.attributes.position.array;
@@ -175,6 +175,7 @@ class App {
 
       if (distance < 1) {
         this.#rippleBuffer1[i] += intensity * (1 - distance);
+
       }
     }
   }
@@ -184,39 +185,52 @@ class App {
 
 
   updateRipple() {
-    const damping = 0.98;
+    const damping = 0.97;
     const spread = 0.5;
     const buffer1 = this.#rippleBuffer1;
     const buffer2 = this.#rippleBuffer2;
-    const geometry = this.fullscreenPlane.geometry;
-    const vertices = geometry.attributes.position.array;
-    const len = vertices.length / 3;  // each vertex has x, y, z
+    const len = buffer1.length; // Assuming both buffers are the same length
+
+    const width = 181; // Your grid width
 
     for (let i = 0; i < len; ++i) {
       let sum = 0;
-      sum += buffer1[i > 1 ? i - 1 : i];
-      sum += buffer1[i < len - 1 ? i + 1 : i];
+
+      // Check for horizontal neighbors
+      if (i % width !== 0) {
+        sum += buffer1[i - 1];
+      }
+
+      if ((i + 1) % width !== 0) {
+        sum += buffer1[i + 1];
+      }
 
       // Check for vertical neighbors
-      // Assuming vertices are a grid (width * height), for example, 180 * 252
-      const width = 181;
-      sum += buffer1[i >= width ? i - width : i];
-      sum += buffer1[i < len - width ? i + width : i];
+      if (i >= width) {
+        sum += buffer1[i - width];
+      }
+      if (i < len - width) {
+        sum += buffer1[i + width];
+      }
 
       sum *= spread;
       buffer2[i] = (sum - buffer2[i]) * damping;
     }
 
-    for (let i = 0; i < len; ++i) {
-      const zIdx = i * 3 + 2; // Index for Z-coordinate in the vertices array
-      vertices[zIdx] = buffer2[i];
-    }
-
-    // Swap buffers
+    // Swap buffers and update geometry
     [this.#rippleBuffer1, this.#rippleBuffer2] = [this.#rippleBuffer2, this.#rippleBuffer1];
 
-    geometry.attributes.position.needsUpdate = true;
+    const vertices = this.fullscreenPlane.geometry.attributes.position.array;
+
+    for (let i = 0; i < len; ++i) {
+      const zIdx = i * 3 + 2;
+      // Apply a scaling factor to the tanh function to limit z to 3
+      vertices[zIdx] = 3 * Math.tanh(buffer2[i]); //<- flattening
+    }
+
+    this.fullscreenPlane.geometry.attributes.position.needsUpdate = true;
   }
+
 
 
 
