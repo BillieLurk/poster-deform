@@ -29,6 +29,7 @@ class App {
     this.#rippleBuffer1 = [];
     this.#rippleBuffer2 = [];
     window.addEventListener('mousemove', this.#onMouseMove, false);
+    window.addEventListener('touchmove', this.#onTouchMove, false);
   }
 
   async init() {
@@ -51,6 +52,11 @@ class App {
     this.#rippleBuffer2 = new Float32Array(len).fill(0);
   }
 
+  destroy() {
+    window.removeEventListener('mousemove', this.#onMouseMove, false);
+    window.removeEventListener('touchmove', this.#onTouchMove, false);
+}
+
   #onMouseMove = (event) => {
     this.#mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
     this.#mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
@@ -58,9 +64,25 @@ class App {
 
     const intersection = this.#getIntersection();
     if (intersection) {
-      this.triggerRipple(intersection, 0.03);
+      this.triggerRipple(intersection, 0.02);
     }
   }
+
+  #onTouchMove = (event) => {
+    event.preventDefault();  // Prevent the default behavior (like scrolling)
+    // Get the touch coordinates
+    const touch = event.touches[0];
+
+    this.#mouse.x = (touch.clientX / window.innerWidth) * 2 - 1;
+    this.#mouse.y = -(touch.clientY / window.innerHeight) * 2 + 1;
+
+    this.#raycaster.setFromCamera(this.#mouse, this.camera);
+
+    const intersection = this.#getIntersection();
+    if (intersection) {
+        this.triggerRipple(intersection, 0.02);
+    }
+}
 
   #getIntersection() {
     const intersects = this.#raycaster.intersectObject(this.fullscreenPlane);
