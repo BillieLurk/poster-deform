@@ -158,7 +158,7 @@ class App {
         const distance = point.distanceTo(vertex);
 
         const distMult = 1.5
-        const amp = clamp(overallSpeed, 0, 6)
+        const amp = 2
         if (distance < Math.PI * distMult) { // Change this to control the radius of the effect
           targetZ = (Math.cos(distance / distMult) + 1) * amp;
         }
